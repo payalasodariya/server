@@ -8,10 +8,10 @@ import {
 import { User } from "../entities/User";
 import { hash, verify } from "argon2";
 import { UsernamePasswordInput } from "./UsernamePasswordInput";
-import { validateRegister } from "../utils/validateRegister";
 import { sendEmail } from "../utils/sendEmail";
 import { getConnection } from "typeorm";
 import { signToken, verifyToken } from "../utils/token";
+import { validateChangePassword, validateRegister } from "../utils/validateEmailPassword";
 
 @ObjectType()
 class FieldError {
@@ -36,88 +36,27 @@ class UserResponse {
 @Resolver(User)
 export class UserResolver {
   @Mutation(() => UserResponse)
-  async changePassword(
-    @Arg("token") token: string,
-    @Arg("newPassword") newPassword: string
-  ): Promise<UserResponse> {
-    if (newPassword.length <= 2) {
-      return {
-        errors: [
-          {
-            field: "newPassword",
-            message: "length must be greater than 2",
-          },
-        ],
-      };
-    }
-
-    const userId= verifyToken(token);
-
-    if (!userId) {
-      return {
-        errors: [
-          {
-            field: "token",
-            message: "user no longer exists",
-          },
-        ],
-      };
-    }
-
-    await User.update(
-      { id: userId },
-      {
-        password: await hash(newPassword),
-      }
-    );
-
-    return { };
-  }
-
-  @Mutation(() => Boolean)
-  async forgotPassword(
-    @Arg("email") email: string
-  ) {
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      // the email is not in the db
-      return true;
-    }
-
-    const token = signToken(user.id);
-
-    await sendEmail(
-      email,
-      `<a href="http://localhost:3000/change-password/${token}">reset password</a>`
-    );
-
-    return true;
-  }
-
-  @Mutation(() => UserResponse)
   async register(
     @Arg("options") options: UsernamePasswordInput
   ): Promise<UserResponse> {
-    const errors = validateRegister(options);
-    if (errors) {
-      return { errors };
-    }
-
-    const hashedPassword = await hash(options.password);
-    let user;
     try {
-      // User.create({}).save()
+      await validateRegister(options)
+      const hashedPassword = await hash(options.password);
+      let user;
       const result = await getConnection()
         .createQueryBuilder()
         .insert()
         .into(User)
         .values({
+          name: options.name,
           email: options.email,
           password: hashedPassword,
         })
         .returning("*")
         .execute();
       user = result.raw[0];
+      return { user };
+
     } catch (err) {
       if (err.code === "23505") {
         return {
@@ -128,10 +67,10 @@ export class UserResolver {
             },
           ],
         };
+      } else {
+        return err
       }
     }
-
-    return { user };
   }
 
   @Mutation(() => UserResponse)
@@ -166,10 +105,61 @@ export class UserResolver {
       };
     }
 
-    
     return {
       user,
       token: signToken(user.id)
     };
+  }
+
+  @Mutation(() => UserResponse)
+  async changePassword(
+    @Arg("token") token: string,
+    @Arg("newPassword") newPassword: string
+  ): Promise<UserResponse> {
+    try {
+      await validateChangePassword(newPassword);
+      const userId = verifyToken(token);
+
+      if (!userId) {
+        return {
+          errors: [
+            {
+              field: "token",
+              message: "user no longer exists",
+            },
+          ],
+        };
+      }
+
+      await User.update(
+        { id: userId },
+        {
+          password: await hash(newPassword),
+        }
+      );
+      return {};
+    } catch (err) {
+      return err
+    }
+  }
+
+  @Mutation(() => Boolean)
+  async forgotPassword(
+    @Arg("email") email: string
+  ) {
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      // the email is not in the db
+      return true;
+    }
+
+    const token = signToken(user.id);
+
+    await sendEmail(
+      email,
+      `<a href="http://localhost:3000/change-password/${token}">reset password</a>`
+    );
+
+    return true;
   }
 }

@@ -14,6 +14,7 @@ import { getConnection } from "typeorm";
 import { Movie } from "../entities/Movie";
 import { isAuth } from "../middleware/authentication";
 import { MyContext } from "../types";
+import { GraphQLError } from "graphql";
 
 @InputType()
 class MovieInput {
@@ -102,7 +103,9 @@ export class MovieResolver {
       })
       .returning("*")
       .execute();
-    console.log(result)
+    if(!result.raw[0]) {
+      throw new GraphQLError('You are not allowed to update this movie')
+    }
     return result.raw[0];
   }
 
@@ -112,7 +115,8 @@ export class MovieResolver {
     @Arg("id", () => Int) id: number,
     @Ctx() { req }: MyContext
   ): Promise<boolean> {
-    await Movie.delete({ id, created_by: req.body.user_id });
+    const deletedResult = await Movie.delete({ id, created_by: req.body.user_id });
+    if(!deletedResult.affected) throw new GraphQLError('You are not allowed to delete this movie')
     return true;
   }
 }
