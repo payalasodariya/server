@@ -1,0 +1,9 @@
+{
+  "type": "postgres",
+  "host": "localhost",
+  "port": 5432,
+  "username": "payal",
+  "password": "admin",
+  "database": "demo_db",
+  "entities": ["dist/entities/*.js"]
+}
